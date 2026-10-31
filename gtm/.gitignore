@@ -1,0 +1,3 @@
+# Local secrets. Copy .env.gtm.example to gtm/.env.
+.env
+*.local
