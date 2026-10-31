@@ -1,0 +1,25 @@
+// STUB. Not passed through `qm check`.
+// Read from yc-software/qm commit f357718980410ae72147f48529154da3a73a38cf
+// (2026-10-31). If check rejects this file, keep the file `qm init` wrote
+// and copy sandbox/skills/gtm and mcp/onyx-mcp-server.json onto it.
+//
+// MCP servers are not a key in this file. Register Onyx with the admin API.
+// See ../INTEGRATION.md.
+{
+  "contract": 1,
+  "orgId": "pushpress",
+  "orgName": "PushPress",
+  "botName": "PushPress",
+  // Replace this origin before any deploy. It must be https with no path.
+  "publicUrl": "https://qm.example.com",
+  "target": "docker",
+  "modelProvider": "openai",
+  // admin and auth are capabilities. Current qm folds them into web-ui and portal.
+  // slack is optional and runs inside core. Confirm the list with `qm check`.
+  "services": ["core", "web-ui", "portal", "admin", "auth", "slack"],
+  "env": {
+    "core": {
+      "HARNESS_SECURITY_POSTURE": "strict"
+    }
+  }
+}

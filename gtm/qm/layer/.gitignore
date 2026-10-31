@@ -1,0 +1,5 @@
+# Local secret values. qm init writes the same ignore.
+.env
+*.tfstate
+*.tfstate.*
+.terraform/

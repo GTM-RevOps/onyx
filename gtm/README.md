@@ -19,6 +19,7 @@ gtm/config/gtm.yaml       Agents, document sets, Notion connector, OpenAI models
 gtm/config/bootstrap.py   Creates or updates those objects in Onyx.
 gtm/connectors/           Sybill skeleton. Onyx does not load it.
 gtm/evals/                Questions and the citation checker.
+gtm/qm/                   How a separate qm deployment calls this Onyx.
 ```
 
 ## What the shell creates
@@ -145,6 +146,10 @@ Conflict policy:
 
 `gtm/UPSTREAM_CHANGES.md` lists core files. It is empty of edits. Add a row there before you change an upstream file.
 
+## qm front door
+
+Reps use qm Slack and the qm web app. Onyx stays the knowledge service those sessions call. The Onyx admin UI stays for RevOps. The plan is `gtm/qm/INTEGRATION.md`. qm source stays in its own repository.
+
 ## What you do next
 
 1. Start compose and create the admin API key.
@@ -152,3 +157,4 @@ Conflict policy:
 3. Run `python3 gtm/config/bootstrap.py`.
 4. Share the Notion space with the integration and add the pages in `gtm/specs/notion-space.md`.
 5. After the first index, run `python3 gtm/evals/run_evals.py` and read the citation report.
+6. Create the qm deployment in its own repository. Follow `gtm/qm/INTEGRATION.md`.

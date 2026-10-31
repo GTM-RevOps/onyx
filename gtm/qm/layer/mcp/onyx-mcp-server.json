@@ -1,0 +1,11 @@
+{
+  "name": "PushPress GTM",
+  "url": "https://onyx.example.com/mcp",
+  "auth": "bearer",
+  "credentialScope": "per-user",
+  "credentialHost": "onyx.example.com",
+  "credentialAccountType": "personal",
+  "readOnly": true,
+  "enabled": true,
+  "approval": "all"
+}
