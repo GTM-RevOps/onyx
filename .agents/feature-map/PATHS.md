@@ -378,3 +378,4 @@ the admin routes and check that each has a row above, run
 | `web/src/lib/admin-routes.ts`, `web/src/app/admin/layout.tsx` | The admin route list and the admin shell. A new admin route needs its own row above. |
 | `web/src/components/`, `web/src/refresh-components/`, `web/src/layouts/`, `web/lib/opal/`, `web/lib/shared/` | Shared UI. Read the calling component, and the Opal rules in `web/AGENTS.md`. |
 | `web/src/app/layout.tsx`, `web/src/app/page.tsx`, `web/src/app/providers.tsx`, `web/src/app/css/`, `web/src/i18n/`, `web/public/` | The app shell, global styles, translations and static assets. |
+| `gtm/` | PushPress GTM notes, evals, and the Cloudflare Worker that proxies /mcp and /.well-known/ only. This is not an Onyx product surface. |
