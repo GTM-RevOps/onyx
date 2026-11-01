@@ -14,7 +14,8 @@ from __future__ import annotations
 import argparse
 import os
 import sys
-from dataclasses import dataclass
+import uuid
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 _REPO = Path(__file__).resolve().parents[2]
@@ -22,7 +23,7 @@ if str(_REPO) not in sys.path:
     sys.path.insert(0, str(_REPO))
 
 from gtm.lib.client import Api, OnyxClient
-from gtm.lib.config import AgentSpec, GtmConfig, load_gtm_config
+from gtm.lib.config import AgentSpec, GtmConfig, PrivateNotionSpec, load_gtm_config
 from gtm.lib.dry_run import Call, RecordingApi
 from gtm.lib.envfile import load_default_env
 from gtm.lib.parse import ConfigError, as_dict, as_int, as_list
@@ -87,6 +88,18 @@ def self_check() -> None:
     os.environ.pop("OPENAI_FAST_MODEL", None)
     config = load_gtm_config()
     api = RecordingApi()
+    for index, email in enumerate(config.informatics.viewers):
+        api.users.append(
+            {"id": str(uuid.UUID(int=index + 1)), "email": email}
+        )
+        api.credentials.append(
+            {
+                "id": 800 + index,
+                "source": "notion",
+                "user_email": email,
+                "admin_public": True,
+            }
+        )
     apply(api, config, require_secrets=True, skip_notion=False)
     first = list(api.calls)
     api.calls.clear()
@@ -111,6 +124,33 @@ def self_check() -> None:
     plan = render_plan(first)
     if "sk-gtm-self-check" in plan or "ntn_gtm_self_check" in plan:
         raise ConfigError("The dry-run plan included a secret")
+    if _count(first, "PUT", "/manage/connector/") != len(config.informatics.viewers):
+        raise ConfigError("The first run did not pair every Informatics viewer")
+    if _count(second, "PUT", "/manage/connector/") != 0:
+        raise ConfigError("The second run paired an Informatics viewer again")
+    if _count(second, "DELETE", "/manage/connector/") != 0:
+        raise ConfigError("The second run removed an Informatics pair")
+    _expect_excluded(first, config.informatics.root_page_id)
+    api.calls.clear()
+    narrower = replace(
+        config.informatics, viewers=config.informatics.viewers[:3]
+    )
+    ensure_private_connector(
+        api,
+        narrower,
+        require_secrets=True,
+        logs=[],
+    )
+    if _count(api.calls, "DELETE", "/manage/connector/") != 1:
+        raise ConfigError("Removing a viewer did not delete their pair")
+    bare = RecordingApi()
+    try:
+        ensure_private_connector(bare, config.informatics, require_secrets=True, logs=[])
+    except ConfigError as error:
+        if config.informatics.viewers[0] not in str(error):
+            raise
+    else:
+        raise ConfigError("A missing Notion credential did not fail")
 
 
 def live_client(require_secrets: bool) -> OnyxClient:
@@ -141,17 +181,40 @@ def apply(
     cc_pair_id = ensure_notion(
         api, config, require_secrets=require_secrets, skip_notion=skip_notion, logs=logs
     )
+    informatics_ids = ensure_private_connector(
+        api,
+        config.informatics,
+        require_secrets=require_secrets and not skip_notion,
+        logs=logs,
+    )
+    pairs_by_name: dict[str, list[int]] = {}
+    if cc_pair_id is not None:
+        pairs_by_name[config.notion.name] = [cc_pair_id]
+    if informatics_ids:
+        pairs_by_name[config.informatics.name] = informatics_ids
     set_ids = ensure_document_sets(
         api,
         config,
-        cc_pair_id=cc_pair_id,
-        notion_skipped=cc_pair_id is None,
+        pairs_by_name=pairs_by_name,
         logs=logs,
     )
     label_id = ensure_label(api, config, logs)
     tool_ids = resolve_tools(api, config)
     for agent in config.agents:
-        ensure_agent(api, config, agent, set_ids, tool_ids, label_id, llm, logs)
+        if any(key not in set_ids for key in agent.document_set_keys):
+            logs.append(f"Skip agent {agent.name}. A document set is not ready.")
+            continue
+        ensure_agent(
+            api,
+            config,
+            agent,
+            set_ids,
+            tool_ids,
+            label_id,
+            llm,
+            logs,
+            require_secrets=require_secrets,
+        )
         ensure_prompts(api, agent, logs)
     return logs
 
@@ -294,8 +357,11 @@ def ensure_notion(
         "recursive_index_enabled": config.notion.recursive_index_enabled,
     }
     root = os.environ.get(config.notion.root_page_id_env, "").strip()
+    root = root or config.notion.root_page_id
     if root:
         specific["root_page_id"] = root
+    if config.notion.excluded_page_ids:
+        specific["excluded_page_ids"] = list(config.notion.excluded_page_ids)
     created = api.request(
         "POST",
         "/manage/admin/connector-with-credential",
@@ -326,12 +392,122 @@ def ensure_notion(
     return cc_pair_id
 
 
+def ensure_private_connector(
+    api: Api,
+    spec: PrivateNotionSpec,
+    *,
+    require_secrets: bool,
+    logs: list[str],
+) -> list[int]:
+    """Create the Informatics connector and pair one private credential per viewer."""
+    credentials = as_list(
+        api.request("GET", "/manage/admin/credential"), "credentials"
+    )
+    chosen: dict[str, dict[str, object]] = {}
+    missing: list[str] = []
+    for email in spec.viewers:
+        owned = _credentials_for_viewer(credentials, email)
+        if len(owned) == 1:
+            chosen[email.lower()] = owned[0]
+            continue
+        if len(owned) > 1:
+            raise ConfigError(
+                f"{email} owns {len(owned)} Notion credentials. "
+                "Leave one admin-public Informatics credential and re-run."
+            )
+        missing.append(email)
+    if missing:
+        message = _missing_credential_message(missing)
+        if require_secrets:
+            raise ConfigError(message)
+        logs.append(message)
+        return []
+
+    rows = as_list(api.request("GET", "/manage/admin/connector"), "connectors")
+    existing = _find_named(rows, spec.name, "connector")
+    if existing is None:
+        created = as_dict(
+            api.request(
+                "POST",
+                "/manage/admin/connector",
+                {
+                    "name": spec.name,
+                    "source": spec.source,
+                    "input_type": spec.input_type,
+                    "connector_specific_config": {
+                        "recursive_index_enabled": spec.recursive_index_enabled,
+                        "root_page_id": spec.root_page_id,
+                    },
+                    "refresh_freq": spec.refresh_freq_seconds,
+                    "prune_freq": spec.prune_freq_seconds,
+                    "access_type": spec.access_type,
+                    "groups": [],
+                },
+            ),
+            "informatics connector",
+        )
+        connector_id = as_int(created.get("id"), "connector id")
+        logs.append(f"Create Informatics connector {spec.name} (id {connector_id})")
+    else:
+        connector_id = as_int(existing.get("id"), "connector id")
+        logs.append(f"Keep Informatics connector {spec.name} (id {connector_id})")
+
+    statuses = as_list(
+        api.request("GET", "/manage/admin/connector/status"),
+        "connector status",
+    )
+    paired = _pairs_for_connector(statuses, connector_id)
+    paired_emails = {
+        _pair_email(row): row for row in paired if _pair_email(row)
+    }
+    wanted = {email.lower() for email in spec.viewers}
+    cc_pair_ids: list[int] = []
+    for email in spec.viewers:
+        current = paired_emails.get(email.lower())
+        if current is not None:
+            cc_pair_ids.append(as_int(current.get("cc_pair_id"), "cc pair id"))
+            logs.append(f"Keep Informatics pair for {email}")
+            continue
+        credential = chosen[email.lower()]
+        credential_id = as_int(credential.get("id"), "credential id")
+        # ConnectorCredentialPairMetadata requires name. access_type and groups
+        # are the private CE pairing: no groups, so access is the credential owner.
+        created_pair = as_dict(
+            api.request(
+                "PUT",
+                f"/manage/connector/{connector_id}/credential/{credential_id}",
+                {
+                    "name": f"{spec.name} ({email})",
+                    "access_type": "private",
+                    "groups": [],
+                },
+            ),
+            "informatics pair",
+        )
+        if created_pair.get("success") is False:
+            raise ConfigError(str(created_pair.get("message") or "pair failed"))
+        cc_pair_ids.append(as_int(created_pair.get("data"), "cc pair id"))
+        logs.append(f"Pair Informatics credential for {email}")
+
+    for row in paired:
+        email = _pair_email(row)
+        if email in wanted:
+            continue
+        credential = as_dict(row.get("credential"), "credential")
+        credential_id = as_int(credential.get("id"), "credential id")
+        api.request(
+            "DELETE",
+            f"/manage/connector/{connector_id}/credential/{credential_id}",
+        )
+        logs.append(f"Remove Informatics pair for {email or credential_id}")
+    return cc_pair_ids
+
+
 def ensure_document_sets(
     api: Api,
     config: GtmConfig,
     *,
-    cc_pair_id: int | None,
-    notion_skipped: bool,
+    pairs_by_name: dict[str, list[int]],
     logs: list[str],
 ) -> dict[str, int]:
     listing = as_list(
@@ -340,9 +516,14 @@ def ensure_document_sets(
     )
     ids: dict[str, int] = {}
     for spec in config.document_sets:
-        desired = _desired_cc_pairs(spec.cc_pair_names, config.notion.name, cc_pair_id)
+        desired, complete = _ids_for_names(spec.cc_pair_names, pairs_by_name)
         existing = _find_named(listing, spec.name, "document set")
         if existing is None:
+            if not desired:
+                logs.append(
+                    f"Skip document set {spec.name}. Its connector is not paired yet."
+                )
+                continue
             created = api.request(
                 "POST",
                 "/manage/admin/document-set",
@@ -355,7 +536,7 @@ def ensure_document_sets(
         set_id = as_int(existing.get("id"), "document set id")
         ids[spec.key] = set_id
         current = _summary_ids(existing)
-        if notion_skipped and not desired:
+        if not complete:
             desired = sorted(current)
         if (
             existing.get("description") == spec.description
@@ -422,8 +603,15 @@ def ensure_agent(
     label_id: int,
     llm: LlmResult,
     logs: list[str],
+    require_secrets: bool,
 ) -> None:
-    body = _agent_body(config, agent, set_ids, tool_ids, label_id, llm)
+    user_ids: list[str] | None = None
+    if agent.viewer_emails:
+        user_ids = _user_ids(api, agent.viewer_emails, require_secrets, logs)
+        if user_ids is None:
+            logs.append(f"Skip agent {agent.name}. A viewer has no Onyx user yet.")
+            return
+    body = _agent_body(config, agent, set_ids, tool_ids, label_id, llm, user_ids)
     listing = as_list(api.request("GET", "/admin/persona"), "agents")
     existing = _find_named(listing, agent.name, "agent")
     if existing is not None and existing.get("builtin_persona") is True:
@@ -478,6 +666,7 @@ def _agent_body(
     tool_ids: dict[str, int],
     label_id: int,
     llm: LlmResult,
+    user_ids: list[str] | None,
 ) -> dict[str, object]:
     sections: list[str] = []
     for key in agent.document_set_keys:
@@ -498,7 +687,7 @@ def _agent_body(
         "name": agent.name,
         "description": agent.description,
         "document_set_ids": [set_ids[key] for key in agent.document_set_keys],
-        "is_public": True,
+        "is_public": agent.is_public,
         "tool_ids": [tool_ids[code] for code in agent.tool_codes],
         "system_prompt": system_prompt,
         "task_prompt": agent.task_prompt,
@@ -511,6 +700,8 @@ def _agent_body(
     }
     if llm.chat_model_configuration_id is not None:
         body["default_model_configuration_id"] = llm.chat_model_configuration_id
+    if user_ids is not None:
+        body["users"] = user_ids
     return body
 
 
@@ -521,7 +712,11 @@ def _agent_matches(current: dict[str, object], desired: dict[str, object]) -> bo
         return False
     if current.get("description") != desired.get("description"):
         return False
-    if current.get("is_public") is not True:
+    if current.get("is_public") is not desired.get("is_public"):
+        return False
+    if "users" in desired and _user_id_set(current.get("users")) != _user_id_set(
+        desired.get("users")
+    ):
         return False
     if current.get("is_featured") is not desired.get("is_featured"):
         return False
@@ -578,17 +773,124 @@ def _document_set_body(
     return body
 
 
-def _desired_cc_pairs(
-    names: tuple[str, ...], notion_name: str, cc_pair_id: int | None
-) -> list[int]:
-    if names != (notion_name,):
-        raise ConfigError(
-            "This shell attaches only the PushPress GTM Notion connector. "
-            f"The document set lists {list(names)}."
+def _ids_for_names(
+    names: tuple[str, ...], pairs_by_name: dict[str, list[int]]
+) -> tuple[list[int], bool]:
+    ids: list[int] = []
+    complete = True
+    for name in names:
+        found = pairs_by_name.get(name, [])
+        if not found:
+            complete = False
+            continue
+        ids.extend(found)
+    return ids, complete
+
+
+def _credentials_for_viewer(
+    credentials: list[object], email: str
+) -> list[dict[str, object]]:
+    owned: list[dict[str, object]] = []
+    for item in credentials:
+        credential = as_dict(item, "credential")
+        source = str(credential.get("source") or "")
+        owner = credential.get("user_email")
+        if source == "notion" and isinstance(owner, str) and owner.lower() == email.lower():
+            owned.append(credential)
+    return owned
+
+
+def _missing_credential_message(emails: list[str]) -> str:
+    lines = [
+        "Informatics needs one Notion credential owned by each viewer.",
+        "Use a new read-only Notion internal integration. Do not use RevOps | Dev.",
+    ]
+    for email in emails:
+        lines.append(
+            f"{email}: promote them to admin, have them POST /api/manage/credential "
+            'as themselves with {"credential_json": {"notion_integration_token": "<token>"}, '
+            '"admin_public": true, "source": "notion", "name": "Informatics"}, then demote them.'
         )
-    if cc_pair_id is None:
-        return []
-    return [cc_pair_id]
+    lines.append("Re-run the bootstrap after those credentials exist.")
+    return " ".join(lines)
+
+
+def _pairs_for_connector(statuses: list[object], connector_id: int) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    for item in statuses:
+        status = as_dict(item, "connector status")
+        connector = status.get("connector")
+        if not isinstance(connector, dict):
+            continue
+        if connector.get("id") != connector_id:
+            continue
+        rows.append(status)
+    return rows
+
+
+def _pair_email(row: dict[str, object]) -> str:
+    credential = row.get("credential")
+    if not isinstance(credential, dict):
+        return ""
+    email = credential.get("user_email")
+    return email.lower() if isinstance(email, str) else ""
+
+
+def _user_ids(
+    api: Api,
+    emails: tuple[str, ...],
+    require_secrets: bool,
+    logs: list[str],
+) -> list[str] | None:
+    listing = as_list(
+        api.request("GET", "/manage/users/accepted/all"), "users"
+    )
+    by_email: dict[str, str] = {}
+    for item in listing:
+        user = as_dict(item, "user")
+        email = user.get("email")
+        user_id = user.get("id")
+        if isinstance(email, str) and user_id is not None:
+            by_email[email.lower()] = str(user_id)
+    missing = [email for email in emails if email.lower() not in by_email]
+    if missing:
+        message = (
+            "These viewers have no Onyx user yet. They must sign in with Google first: "
+            + ", ".join(missing)
+        )
+        if require_secrets:
+            raise ConfigError(message)
+        logs.append(message)
+        return None
+    return [by_email[email.lower()] for email in emails]
+
+
+def _user_id_set(value: object) -> set[str]:
+    if not isinstance(value, list):
+        return set()
+    ids: set[str] = set()
+    for item in value:
+        if isinstance(item, str):
+            ids.add(item)
+        elif isinstance(item, dict) and item.get("id") is not None:
+            ids.add(str(item["id"]))
+    return ids
+
+
+def _expect_excluded(calls: list[Call], page_id: str) -> None:
+    for call in calls:
+        if call.path != "/manage/admin/connector-with-credential" or call.body is None:
+            continue
+        connector = call.body.get("connector")
+        if not isinstance(connector, dict):
+            continue
+        config = connector.get("connector_specific_config")
+        if not isinstance(config, dict):
+            continue
+        excluded = config.get("excluded_page_ids")
+        if isinstance(excluded, list) and page_id in excluded:
+            return
+    raise ConfigError("The Hub connector does not exclude the Informatics page")
 
 
 def _model_rows(

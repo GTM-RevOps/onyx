@@ -38,14 +38,21 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--self-check", action="store_true")
     parser.add_argument("--env-file", type=Path, default=None)
+    parser.add_argument(
+        "--access",
+        action="store_true",
+        help="Check Hub vs Informatics visibility through the Onyx MCP search tool.",
+    )
     parser.add_argument("--id", default=None, help="Run one case id.")
     parser.add_argument("--agent", default=None, help="Run one agent name.")
     args = parser.parse_args(argv)
     try:
-        if args.self_check:
+        if args.self_check and not args.access:
             self_check()
             print("self-check passed")
             return 0
+        if args.access:
+            return _access_main(args.dry_run, args.self_check, args.env_file)
         load_default_env(args.env_file)
         config = load_gtm_config()
         cases = _load(config)
@@ -64,6 +71,48 @@ def main(argv: list[str] | None = None) -> int:
     except ConfigError as error:
         print(f"error: {error}", file=sys.stderr)
         return 1
+
+
+def _access_main(dry_run: bool, self_check_only: bool, env_file: Path | None) -> int:
+    if self_check_only:
+        _access_self_check()
+        print("access self-check passed")
+        return 0
+    if not dry_run:
+        load_default_env(env_file)
+    config = load_gtm_config()
+    page_id = config.informatics.root_page_id
+    if dry_run:
+        print("DRY RUN. No MCP request was sent.")
+        print(f"Hub-only token must not see {page_id}")
+        print(f"Viewer token must see {page_id}")
+        print("Revoked token must be refused (401 or 403)")
+        return 0
+    return _run_access(page_id)
+
+
+def _access_self_check() -> None:
+    from gtm.evals.access_score import (
+        AccessResult,
+        score_hub_user,
+        score_revoked,
+        score_viewer,
+    )
+
+    page = "408233ce-1c17-81e4-a92f-e23cc8bb95fd"
+    if not score_hub_user([AccessResult("hub-page", "ICP", "", "firmographics")], page).passed:
+        raise ConfigError("Hub-only fixture should pass")
+    leaked = AccessResult(page, "Comp", f"https://www.notion.so/{page}", "salary")
+    if score_hub_user([leaked], page).passed:
+        raise ConfigError("A Hub-only hit on Informatics should fail")
+    if not score_viewer([leaked], page).passed:
+        raise ConfigError("A viewer hit should pass")
+    if score_viewer([], page).passed:
+        raise ConfigError("A viewer with no hit should fail")
+    if not score_revoked(401).passed or not score_revoked(403).passed:
+        raise ConfigError("Revoked tokens should fail closed")
+    if score_revoked(200).passed:
+        raise ConfigError("A 200 from a revoked token should fail")
 
 
 def self_check() -> None:
@@ -119,6 +168,154 @@ def self_check() -> None:
         phrase,
     )
     _expect(not sent.passed, "a claim that the email was sent should fail")
+    _access_self_check()
+
+
+def _run_access(page_id: str) -> int:
+    import json
+    import urllib.error
+    import urllib.request
+
+    from gtm.evals.access_score import AccessResult, score_hub_user, score_revoked, score_viewer
+
+    hub_token = os.environ.get("ONYX_HUB_USER_TOKEN", "").strip()
+    viewer_token = os.environ.get("ONYX_INFORMATICS_VIEWER_TOKEN", "").strip()
+    revoked_token = os.environ.get("ONYX_REVOKED_TOKEN", "").strip()
+    missing = [
+        name
+        for name, value in (
+            ("ONYX_HUB_USER_TOKEN", hub_token),
+            ("ONYX_INFORMATICS_VIEWER_TOKEN", viewer_token),
+            ("ONYX_REVOKED_TOKEN", revoked_token),
+        )
+        if not value
+    ]
+    if missing:
+        raise ConfigError("Set " + ", ".join(missing) + " to a bearer token.")
+    url = os.environ.get("ONYX_MCP_URL", "").strip() or _mcp_url()
+    query = f"sales compensation {page_id}"
+    failed = 0
+    for label, token, kind in (
+        ("hub-only", hub_token, "hub"),
+        ("viewer", viewer_token, "viewer"),
+        ("revoked", revoked_token, "revoked"),
+    ):
+        status, payload = _post_mcp(url, token, query, urllib.request, urllib.error, json)
+        if kind == "revoked":
+            result = score_revoked(status)
+        else:
+            if status != 200:
+                print(f"FAIL {label} MCP status {status}")
+                failed += 1
+                continue
+            results = _mcp_results(payload)
+            result = score_hub_user(results, page_id) if kind == "hub" else score_viewer(results, page_id)
+        status_word = "PASS" if result.passed else "FAIL"
+        print(f"{status_word} {label} hits={result.informatics_hits} {result.reason}")
+        if not result.passed:
+            failed += 1
+    print(f"{3 - failed} passed, {failed} failed")
+    return 1 if failed else 0
+
+
+def _mcp_url() -> str:
+    base = os.environ.get("ONYX_API_BASE", "http://localhost:3000/api").strip().rstrip("/")
+    if base.endswith("/api"):
+        return base[: -len("/api")] + "/mcp"
+    return base + "/mcp"
+
+
+def _post_mcp(
+    url: str,
+    token: str,
+    query: str,
+    request_mod: object,
+    error_mod: object,
+    json_mod: object,
+) -> tuple[int, object]:
+    body = json_mod.dumps(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {
+                "name": "search_indexed_documents",
+                "arguments": {"query": query},
+            },
+        }
+    ).encode("utf-8")
+    req = request_mod.Request(
+        url,
+        data=body,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with request_mod.urlopen(req, timeout=_timeout("ONYX_HTTP_TIMEOUT", 60)) as response:
+            raw = response.read()
+            status = int(response.status)
+    except error_mod.HTTPError as error:
+        raw = error.read()
+        status = int(error.code)
+    if not raw:
+        return status, None
+    try:
+        return status, json_mod.loads(raw.decode("utf-8"))
+    except json_mod.JSONDecodeError as error:
+        raise ConfigError(f"MCP returned non-JSON ({status})") from error
+
+
+def _mcp_results(payload: object) -> list:
+    from gtm.evals.access_score import AccessResult
+
+    found: list[AccessResult] = []
+    for item in _result_dicts(payload):
+        found.append(
+            AccessResult(
+                document_id=_field(item, "document_id") or _field(item, "id"),
+                title=_field(item, "title"),
+                url=_field(item, "url") or _field(item, "link"),
+                content=_field(item, "content"),
+            )
+        )
+    return found
+
+
+def _result_dicts(payload: object) -> list[dict[str, object]]:
+    if isinstance(payload, dict):
+        results = payload.get("results")
+        if isinstance(results, list):
+            return [item for item in results if isinstance(item, dict)]
+        result = payload.get("result")
+        if isinstance(result, dict):
+            return _result_dicts(result)
+        content = payload.get("content")
+        if isinstance(content, list):
+            rows: list[dict[str, object]] = []
+            for block in content:
+                if not isinstance(block, dict):
+                    continue
+                text = block.get("text")
+                if not isinstance(text, str):
+                    continue
+                try:
+                    import json
+
+                    parsed = json.loads(text)
+                except json.JSONDecodeError:
+                    continue
+                rows.extend(_result_dicts(parsed))
+            return rows
+    return []
+
+
+def _field(item: dict[str, object], key: str) -> str:
+    value = item.get(key)
+    return value if isinstance(value, str) else ""
 
 
 def _run_live(config: GtmConfig, cases: tuple[EvalCase, ...]) -> int:

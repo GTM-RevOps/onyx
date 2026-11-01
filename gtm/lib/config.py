@@ -54,6 +54,8 @@ class AgentSpec:
     replace_base_system_prompt: bool
     starter_message_limit: int
     task_prompt: str
+    is_public: bool = True
+    viewer_emails: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -85,6 +87,21 @@ class NotionSpec:
     token_env: str
     root_page_id_env: str
     credential_key: str
+    root_page_id: str = ""
+    excluded_page_ids: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class PrivateNotionSpec:
+    name: str
+    source: str
+    input_type: str
+    access_type: str
+    refresh_freq_seconds: int
+    prune_freq_seconds: int
+    recursive_index_enabled: bool
+    root_page_id: str
+    viewers: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -92,6 +109,7 @@ class GtmConfig:
     version: int
     llm: LlmSpec
     notion: NotionSpec
+    informatics: PrivateNotionSpec
     document_sets: tuple[DocumentSetSpec, ...]
     agents: tuple[AgentSpec, ...]
     harness_prompt_file: str
@@ -136,12 +154,17 @@ def load_gtm_config(path: Path | None = None) -> GtmConfig:
         require_key(harness, "prompt_file", "harness"), "prompt_file"
     ).strip()
 
+    notion, informatics = _notion_blocks(
+        as_dict(require_key(root, "notion", "config"), "notion")
+    )
     config = GtmConfig(
         version=version,
         llm=_llm(as_dict(require_key(root, "llm", "config"), "llm")),
-        notion=_notion(as_dict(require_key(root, "notion", "config"), "notion")),
+        notion=notion,
+        informatics=informatics,
         document_sets=_document_sets(
-            as_list(require_key(root, "document_sets", "config"), "document_sets")
+            as_list(require_key(root, "document_sets", "config"), "document_sets"),
+            informatics_connector=informatics.name,
         ),
         agents=(),
         harness_prompt_file=prompt_file,
@@ -158,6 +181,7 @@ def load_gtm_config(path: Path | None = None) -> GtmConfig:
         version=config.version,
         llm=config.llm,
         notion=config.notion,
+        informatics=config.informatics,
         document_sets=config.document_sets,
         agents=agents,
         harness_prompt_file=config.harness_prompt_file,
@@ -215,7 +239,13 @@ def _llm(raw: dict[str, object]) -> LlmSpec:
     return spec
 
 
-def _notion(raw: dict[str, object]) -> NotionSpec:
+def _notion_blocks(raw: dict[str, object]) -> tuple[NotionSpec, PrivateNotionSpec]:
+    hub = as_dict(require_key(raw, "hub", "notion"), "notion.hub")
+    private = as_dict(require_key(raw, "informatics", "notion"), "notion.informatics")
+    return _public_notion(hub), _private_notion(private)
+
+
+def _public_notion(raw: dict[str, object]) -> NotionSpec:
     spec = NotionSpec(
         name=as_str(require_key(raw, "name", "notion"), "notion name").strip(),
         source=as_str(require_key(raw, "source", "notion"), "notion source").strip(),
@@ -244,6 +274,12 @@ def _notion(raw: dict[str, object]) -> NotionSpec:
         credential_key=as_str(
             require_key(raw, "credential_key", "notion"), "credential_key"
         ).strip(),
+        root_page_id=as_str(
+            require_key(raw, "root_page_id", "notion"), "root_page_id"
+        ).strip(),
+        excluded_page_ids=str_list(
+            require_key(raw, "excluded_page_ids", "notion"), "excluded_page_ids"
+        ),
     )
     if spec.source != "notion":
         raise ConfigError("notion.source must be notion")
@@ -259,7 +295,48 @@ def _notion(raw: dict[str, object]) -> NotionSpec:
     return spec
 
 
-def _document_sets(items: list[object]) -> tuple[DocumentSetSpec, ...]:
+def _private_notion(raw: dict[str, object]) -> PrivateNotionSpec:
+    viewers = str_list(require_key(raw, "viewers", "informatics"), "viewers")
+    if len(viewers) != len({email.lower() for email in viewers}):
+        raise ConfigError("informatics.viewers has a duplicate email")
+    spec = PrivateNotionSpec(
+        name=as_str(require_key(raw, "name", "informatics"), "informatics name").strip(),
+        source=as_str(require_key(raw, "source", "informatics"), "source").strip(),
+        input_type=as_str(
+            require_key(raw, "input_type", "informatics"), "input_type"
+        ).strip(),
+        access_type=as_str(
+            require_key(raw, "access_type", "informatics"), "access_type"
+        ).strip(),
+        refresh_freq_seconds=as_int(
+            require_key(raw, "refresh_freq_seconds", "informatics"),
+            "refresh_freq_seconds",
+        ),
+        prune_freq_seconds=as_int(
+            require_key(raw, "prune_freq_seconds", "informatics"),
+            "prune_freq_seconds",
+        ),
+        recursive_index_enabled=as_bool(
+            require_key(raw, "recursive_index_enabled", "informatics"),
+            "recursive_index_enabled",
+        ),
+        root_page_id=as_str(
+            require_key(raw, "root_page_id", "informatics"), "root_page_id"
+        ).strip(),
+        viewers=viewers,
+    )
+    if spec.source != "notion":
+        raise ConfigError("informatics.source must be notion")
+    if spec.access_type != "private":
+        raise ConfigError("informatics.access_type must be private")
+    if not spec.recursive_index_enabled:
+        raise ConfigError("informatics.recursive_index_enabled must be true")
+    return spec
+
+
+def _document_sets(
+    items: list[object], *, informatics_connector: str
+) -> tuple[DocumentSetSpec, ...]:
     specs: list[DocumentSetSpec] = []
     keys: set[str] = set()
     names: set[str] = set()
@@ -273,6 +350,15 @@ def _document_sets(items: list[object]) -> tuple[DocumentSetSpec, ...]:
             raise ConfigError(f"Duplicate document set name {name}")
         keys.add(key)
         names.add(name)
+        cc_pair_names = str_list(
+            require_key(raw, "cc_pair_names", name), "cc_pair_names"
+        )
+        is_public = as_bool(require_key(raw, "is_public", name), "is_public")
+        if is_public and informatics_connector in cc_pair_names:
+            raise ConfigError(
+                f"{name} is public and lists {informatics_connector}. "
+                "Informatics stays off every public document set."
+            )
         specs.append(
             DocumentSetSpec(
                 key=key,
@@ -280,10 +366,8 @@ def _document_sets(items: list[object]) -> tuple[DocumentSetSpec, ...]:
                 description=as_str(
                     require_key(raw, "description", name), "description"
                 ).strip(),
-                cc_pair_names=str_list(
-                    require_key(raw, "cc_pair_names", name), "cc_pair_names"
-                ),
-                is_public=as_bool(require_key(raw, "is_public", name), "is_public"),
+                cc_pair_names=cc_pair_names,
+                is_public=is_public,
                 notion_sections=str_list(
                     require_key(raw, "notion_sections", name), "notion_sections"
                 ),
@@ -356,8 +440,15 @@ def _agents(items: list[object], config: GtmConfig) -> tuple[AgentSpec, ...]:
                     "starter_message_limit",
                 ),
                 task_prompt=task_prompt,
+                is_public=as_bool(raw["public"], "public") if "public" in raw else True,
+                viewer_emails=str_list(raw["viewer_emails"], "viewer_emails")
+                if "viewer_emails" in raw
+                else (),
             )
         )
+    for spec in specs:
+        if not spec.is_public and not spec.viewer_emails:
+            raise ConfigError(f"{spec.name} is private and has no viewer_emails")
     return tuple(specs)
 
 

@@ -30,26 +30,45 @@ llm:
   set_search_selection_default_if_unset: true
 
 notion:
-  name: PushPress GTM Notion
-  source: notion
-  input_type: poll
-  access_type: public
-  refresh_freq_seconds: 3600
-  prune_freq_seconds: 86400
-  recursive_index_enabled: true
-  token_env: NOTION_INTEGRATION_TOKEN
-  root_page_id_env: NOTION_ROOT_PAGE_ID
-  credential_key: notion_integration_token
+  # Hub is PUBLIC. Every pushpress.com Google user can read it.
+  # excluded_page_ids keeps the Informatics subtree out of this crawl.
+  hub:
+    name: PushPress GTM Hub
+    source: notion
+    input_type: poll
+    access_type: public
+    refresh_freq_seconds: 3600
+    prune_freq_seconds: 86400
+    recursive_index_enabled: true
+    token_env: NOTION_INTEGRATION_TOKEN
+    root_page_id_env: NOTION_ROOT_PAGE_ID
+    credential_key: notion_integration_token
+    root_page_id: 1cd17a7f-1e33-4794-a832-05ef95ab2a60
+    excluded_page_ids:
+      - 408233ce-1c17-81e4-a92f-e23cc8bb95fd
+  # Informatics is PRIVATE. One credential pair per viewer. No public document set.
+  informatics:
+    name: PushPress GTM Informatics
+    source: notion
+    input_type: poll
+    access_type: private
+    refresh_freq_seconds: 3600
+    prune_freq_seconds: 86400
+    recursive_index_enabled: true
+    root_page_id: 408233ce-1c17-81e4-a92f-e23cc8bb95fd
+    viewers:
+      - kevin.williams@pushpress.com
+      - garrick.iwamoto@pushpress.com
+      - ian.chand@pushpress.com
+      - jessica.xu@pushpress.com  # TODO confirm
 
-# Every set attaches the same Notion connector. Onyx document sets filter by
-# connector, not by Notion page. The page list is the prompt scope until you
-# attach hierarchy nodes on the agent.
+# Public sets attach only the Hub connector. Informatics has its own non-public set.
 document_sets:
   - key: all
     name: GTM All
-    description: The whole PushPress GTM Notion space.
+    description: Public Hub pages. The Informatics subtree is not in this connector.
     cc_pair_names:
-      - PushPress GTM Notion
+      - PushPress GTM Hub
     is_public: true
     notion_sections:
       - ICP
@@ -65,7 +84,7 @@ document_sets:
     name: GTM SDR
     description: Pages an SDR uses for research and first-touch drafts.
     cc_pair_names:
-      - PushPress GTM Notion
+      - PushPress GTM Hub
     is_public: true
     notion_sections:
       - ICP
@@ -77,7 +96,7 @@ document_sets:
     name: GTM AE
     description: Pages an AE uses to prepare a deal and draft a follow-up.
     cc_pair_names:
-      - PushPress GTM Notion
+      - PushPress GTM Hub
     is_public: true
     notion_sections:
       - ICP
@@ -91,7 +110,7 @@ document_sets:
     name: GTM CS
     description: Pages customer success uses for replies and renewals.
     cc_pair_names:
-      - PushPress GTM Notion
+      - PushPress GTM Hub
     is_public: true
     notion_sections:
       - Playbooks
@@ -102,7 +121,7 @@ document_sets:
     name: GTM Manager
     description: Pages a manager uses to coach from the playbooks.
     cc_pair_names:
-      - PushPress GTM Notion
+      - PushPress GTM Hub
     is_public: true
     notion_sections:
       - Playbooks
@@ -111,9 +130,9 @@ document_sets:
       - Release notes
   - key: revops
     name: GTM RevOps
-    description: The whole space, for definition checks and draft updates.
+    description: Public Hub pages, for definition checks and draft updates.
     cc_pair_names:
-      - PushPress GTM Notion
+      - PushPress GTM Hub
     is_public: true
     notion_sections:
       - ICP
@@ -129,12 +148,20 @@ document_sets:
     name: GTM Competitive
     description: Battlecards, objections, and messaging only.
     cc_pair_names:
-      - PushPress GTM Notion
+      - PushPress GTM Hub
     is_public: true
     notion_sections:
       - Battlecards
       - Objections
       - Messaging
+  - key: informatics
+    name: GTM Informatics
+    description: Sales compensation and the pages under Informatics. Not public.
+    cc_pair_names:
+      - PushPress GTM Informatics
+    is_public: false
+    notion_sections:
+      - Informatics
 
 agents:
   - key: sdr
@@ -323,3 +350,32 @@ agents:
         prompt: |
           Is this claim safe to say: {{claim}}?
           Answer only from battlecards and messaging. Cite the page.
+
+  - key: informatics
+    name: Informatics
+    description: Answer from the private Informatics pages. A human sends anything onward.
+    prompt_file: specs/prompts/informatics.txt
+    document_set_keys:
+      - informatics
+    tool_codes:
+      - SearchTool
+    featured: false
+    display_priority: 70
+    datetime_aware: true
+    replace_base_system_prompt: false
+    starter_message_limit: 2
+    public: false
+    viewer_emails:
+      - kevin.williams@pushpress.com
+      - garrick.iwamoto@pushpress.com
+      - ian.chand@pushpress.com
+      - jessica.xu@pushpress.com  # TODO confirm
+    tasks:
+      - name: Informatics comp question
+        prompt: |
+          Answer this compensation question from Informatics only: {{question}}.
+          Cite the page. If it is not there, say this is not in the brain.
+      - name: Informatics page lookup
+        prompt: |
+          What does Informatics say about {{topic}}?
+          Cite the page. Do not quote it to anyone who is not a viewer.

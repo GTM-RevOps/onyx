@@ -78,7 +78,7 @@ Use per-user tokens. Do not point every rep at one admin API key.
 
 Map a person by email yourself. qm's principal id (`jordan@acme.test`, a Slack id, or `oidc:...`) is not an Onyx user id. Principal links fold several qm sign-ins into one canonical id (`docs/principal-links.md`). They do not create an Onyx user. Store that canonical principal's Onyx PAT with `POST /v1/connectors/token` and `host` equal to `credentialHost`. That endpoint was not called here.
 
-On Community Edition the GTM document sets are public. Every Onyx user who can search sees the same brain. The per-user token attributes the call. It does not hide a document set. Document-level ACL and groups are Enterprise Edition. This fork does not enable that code.
+On Community Edition the Hub document sets are public, so every signed-in user can be offered those pages. That does not mean every page is visible. A document's readers are the owners of its PRIVATE connector credentials, plus everyone if any pair on that document is PUBLIC (`onyx/db/document.py`, `onyx/access/access.py`). MCP `search_indexed_documents` calls `/search` with the caller's bearer, and that search applies the ACL. Groups and synced permissions (`SYNC`, `SYNC_RESTRICTED`) are the paid path. PRIVATE with no groups is Community Edition. This fork uses that for Informatics: one private pair per viewer, and the Hub crawl excludes the Informatics page so those documents are not also PUBLIC.
 
 Onyx Cloud charges for access tokens. This deployment is self-hosted. The cloud rule does not apply here. Verified as a docs statement, not as a cloud trial.
 
@@ -112,6 +112,34 @@ Configure in the qm deployment repository:
 Fork qm only for a behavior the deployment directory cannot express. Honoring `x-qm-actor` inside Onyx would be a change in this fork, and it would be a core edit. Do not do that for the first deployment. Per-user PATs already select the Onyx user.
 
 Do not commit qm source, qm images, or `.env` into this Onyx repo.
+
+## Onboard an Informatics viewer
+
+Informatics is page `408233ce-1c17-81e4-a92f-e23cc8bb95fd`. The viewers are Kevin Williams, Garrick Iwamoto, Ian Chand, and Jessica Xu. Jessica's email is unconfirmed: `jessica.xu@pushpress.com` (`# TODO confirm`).
+
+Use a **new** read-only Notion internal integration. Capability: read content only. Do not use the existing `RevOps | Dev` integration. The Hub connector's `NOTION_INTEGRATION_TOKEN` is that new token. Each viewer uses the same integration when they create their own Onyx credential.
+
+Onyx Community Edition only lets an admin create a credential, and there is no change-owner API. The credential owner is the user who calls `POST /api/manage/credential`.
+
+1. Confirm the person has signed in to Onyx with their `pushpress.com` Google account.
+2. Promote them to admin.
+3. They create the credential themselves, with `admin_public: true`, so the bootstrap admin can see it and pair it:
+
+```json
+{
+  "name": "Informatics",
+  "source": "notion",
+  "admin_public": true,
+  "credential_json": {"notion_integration_token": "<their token>"}
+}
+```
+
+4. Demote them.
+5. Run `python3 gtm/config/bootstrap.py`. It pairs that credential to the Informatics connector with `access_type: private` and `groups: []`.
+
+To remove a viewer, delete their email from `viewers` in `gtm/config/gtm.yaml` and from the Informatics agent's `viewer_emails`. Re-run the bootstrap. It deletes that credential's pair. Their token then fails the document ACL. Also revoke the Onyx personal access token stored in qm.
+
+Start the Hub index fresh after `excluded_page_ids` is set, or confirm Informatics documents are no longer PUBLIC. Pages indexed by an earlier public crawl can stay readable until that check. Pruning of those pages was not verified here.
 
 ## Open questions
 

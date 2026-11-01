@@ -1,8 +1,17 @@
 # Upstream files this fork changes
 
-No upstream Onyx file is modified.
+Two Community Edition files, so the public Notion crawl can skip a page and the pages under it.
 
-New files are `gtm/` and `.env.gtm.example`. `gtm/.gitignore` ignores `gtm/.env` only.
+| File | Change |
+| --- | --- |
+| `backend/onyx/connectors/notion/config.py` | Optional `excluded_page_ids`. Empty or omitted means no exclusions. Values are dashed page ids. A 32-character hex id is stored dashed. |
+| `backend/onyx/connectors/notion/connector.py` | `__init__` seeds `indexed_pages` with those ids. The crawler already skips an id in that set before it reads child pages. |
+
+The unit test is `backend/tests/unit/onyx/connectors/notion/test_notion_excluded_pages.py`.
+
+No file under `backend/ee/` is imported or edited.
+
+## Not registered
 
 The Sybill connector is not registered. Onyx loads connectors from `CONNECTOR_CLASS_MAP` in `backend/onyx/connectors/registry.py`. A class outside that map does not run. Registration needs these upstream edits. Do not make them until a transcript sync is in scope.
 

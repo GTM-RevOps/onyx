@@ -13,6 +13,7 @@ from onyx.connectors.field_policy import (
     FieldClass,
     FieldPolicy,
     ScopeDirection,
+    ScopeExclude,
     ScopeInclude,
     ScopeToggle,
 )
@@ -21,6 +22,7 @@ from onyx.connectors.planning_rule import ConnectorChangeOverride
 _RECURSIVE_INDEX_ENABLED = "recursive_index_enabled"
 
 ROOT_PAGE_ID_FORMAT_ERROR = "Paste the page URL or its 32-character ID."
+EXCLUDED_PAGE_ID_FORMAT_ERROR = "Use a dashed page ID."
 
 _NOTION_DOMAINS = ("notion.so", "notion.site", "app.notion.com")
 _HEX_ID = re.compile(r"[0-9a-fA-F]{32}")
@@ -33,6 +35,20 @@ def _dashed(hex_id: str) -> str:
     return (
         f"{hex_id[0:8]}-{hex_id[8:12]}-{hex_id[12:16]}-{hex_id[16:20]}-{hex_id[20:]}"
     ).lower()
+
+
+def normalize_notion_page_id(value: str) -> str | None:
+    """A dashed page id, or None when `value` is not a Notion page id.
+
+    A 32-character hex id is accepted and stored dashed, which is the form
+    Notion returns on page objects.
+    """
+    text = value.strip()
+    if _DASHED_ID.fullmatch(text):
+        return text.lower()
+    if _HEX_ID.fullmatch(text):
+        return _dashed(text)
+    return None
 
 
 def page_id_from_url(url: str) -> str | None:
@@ -72,6 +88,12 @@ class NotionConnectorConfig(ConnectorConfig):
         str | None,
         FieldPolicy(FieldClass.SCOPE, scope=ScopeInclude(empty_means_all=True)),
     ] = None
+    # Pages (and the subtrees under them) the crawl does not index.
+    # Empty means no exclusions, which is the previous behavior.
+    excluded_page_ids: Annotated[
+        list[str] | None,
+        FieldPolicy(FieldClass.SCOPE, scope=ScopeExclude()),
+    ] = None
 
     # The connector sends the value to Notion as a page ID, so a URL becomes
     # the ID it holds.
@@ -85,6 +107,19 @@ class NotionConnectorConfig(ConnectorConfig):
         if page_id is None:
             raise field_format_error(ROOT_PAGE_ID_FORMAT_ERROR)
         return page_id
+
+    @field_validator("excluded_page_ids")
+    @classmethod
+    def _excluded_pages_are_ids(cls, value: list[str] | None) -> list[str] | None:
+        if not value:
+            return value
+        normalized: list[str] = []
+        for item in value:
+            page_id = normalize_notion_page_id(item)
+            if page_id is None:
+                raise field_format_error(EXCLUDED_PAGE_ID_FORMAT_ERROR)
+            normalized.append(page_id)
+        return normalized
 
 
 def notion_planning_rule(

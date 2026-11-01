@@ -111,3 +111,15 @@ How do we beat `{{competitor}}`? If no battlecard exists, say this is not in the
 ### Competitive claim check
 
 Is this claim safe to say: `{{claim}}`? Answer only from battlecards and messaging. Cite the page.
+
+## Informatics
+
+Shared only with the Informatics viewers. Not a public agent.
+
+### Informatics comp question
+
+Answer a compensation question from Informatics only. Cite the page.
+
+### Informatics page lookup
+
+What Informatics says about a topic. Cite the page. Do not quote it to anyone who is not a viewer.

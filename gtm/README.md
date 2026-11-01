@@ -27,15 +27,18 @@ gtm/qm/                   How a separate qm deployment calls this Onyx.
 | Object | Name | Scope |
 | --- | --- | --- |
 | LLM provider | PushPress OpenAI | `gpt-4.1` chat, `gpt-4.1-mini` for naming and search selection |
-| Connector | PushPress GTM Notion | Public Notion connector, poll every hour |
-| Document sets | GTM All, GTM SDR, GTM AE, GTM CS, GTM Manager, GTM RevOps, GTM Competitive | Each set attaches that Notion connector |
+| Connector | PushPress GTM Hub | Public Notion connector, rooted at Revenue Operations. Informatics is excluded. |
+| Connector | PushPress GTM Informatics | Private. One credential pair per viewer. |
+| Document sets | GTM All, GTM SDR, GTM AE, GTM CS, GTM Manager, GTM RevOps, GTM Competitive | Public. Hub connector only. |
+| Document set | GTM Informatics | Not public. Informatics pairs only. |
 | Agents | SDR Helper, AE Deal Prep, CS Helper, Manager, RevOps, Competitive Analyst | Public, featured, SearchTool only |
+| Agent | Informatics | Shared only with the four Informatics viewers |
 | Label | GTM | On every agent |
 | Input prompts | One per task | Private to the admin who owns the API key |
 
 Each agent also gets its first four tasks as starter messages. The whole company sees those.
 
-Document sets filter by connector, not by Notion page. Every set currently includes the same connector. The page list in the agent prompt is the scope. After Notion indexes, you can attach hierarchy nodes on the agent. The bootstrap does not clear nodes you add later, because it omits `hierarchy_node_ids` on update.
+Public document sets attach only the Hub connector. The Hub crawl excludes the Informatics page, so that subtree is not public. Informatics documents are visible to the owners of the private credential pairs. The page list in each public agent's prompt is still the preferred Hub section. The bootstrap does not clear hierarchy nodes you add later, because it omits `hierarchy_node_ids` on update.
 
 `replace_base_system_prompt` is false. Onyx keeps its default system prompt, including citation format. The GTM harness is added as the agent instructions.
 

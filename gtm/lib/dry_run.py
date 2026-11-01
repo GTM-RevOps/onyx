@@ -23,6 +23,9 @@ class RecordingApi:
         self.provider: dict[str, object] | None = None
         self.defaults: dict[str, dict[str, object]] = {}
         self.connectors: list[dict[str, object]] = []
+        self.connector_rows: list[dict[str, object]] = []
+        self.credentials: list[dict[str, object]] = []
+        self.users: list[dict[str, object]] = []
         self.document_sets: list[dict[str, object]] = []
         self.labels: list[dict[str, object]] = []
         self.personas: list[dict[str, object]] = []
@@ -53,8 +56,18 @@ class RecordingApi:
             return None
         if method == "GET" and path == "/manage/admin/connector/status":
             return self.connectors
+        if method == "GET" and path == "/manage/admin/connector":
+            return self.connector_rows
+        if method == "POST" and path == "/manage/admin/connector":
+            return self._create_connector_row(body or {})
         if method == "POST" and path == "/manage/admin/connector-with-credential":
             return self._create_connector(body or {})
+        if method == "GET" and path == "/manage/admin/credential":
+            return self.credentials
+        if method == "GET" and path == "/manage/users/accepted/all":
+            return self.users
+        if method in {"PUT", "DELETE"} and "/credential/" in path:
+            return self._credential_pair(method, path, body or {})
         if method == "GET" and path == "/manage/document-set":
             return self.document_sets
         if method == "POST" and path == "/manage/admin/document-set":
@@ -178,6 +191,69 @@ class RecordingApi:
         )
         return {"success": True, "data": cc_pair_id}
 
+    def _create_connector_row(self, body: dict[str, object]) -> dict[str, object]:
+        row_id = self._alloc()
+        self.connector_rows.append(
+            {
+                "id": row_id,
+                "name": body.get("name"),
+                "source": body.get("source"),
+            }
+        )
+        return {"id": row_id}
+
+    def _credential_pair(
+        self, method: str, path: str, body: dict[str, object]
+    ) -> dict[str, object]:
+        parts = path.strip("/").split("/")
+        # manage / connector / {id} / credential / {credential_id}
+        connector_id = as_int(int(parts[2]), "connector id")
+        credential_id = as_int(int(parts[4]), "credential id")
+        if method == "DELETE":
+            self.connectors = [
+                row
+                for row in self.connectors
+                if not _same_pair(row, connector_id, credential_id)
+            ]
+            return {"success": True, "data": connector_id}
+        credential = next(
+            (
+                item
+                for item in self.credentials
+                if item.get("id") == credential_id
+            ),
+            None,
+        )
+        if credential is None:
+            raise ConfigError(f"Unknown credential {credential_id}")
+        connector_name = next(
+            (
+                row.get("name")
+                for row in self.connector_rows
+                if row.get("id") == connector_id
+            ),
+            None,
+        )
+        cc_pair_id = self._alloc()
+        self.connectors.append(
+            {
+                "cc_pair_id": cc_pair_id,
+                "name": body.get("name"),
+                "access_type": body.get("access_type"),
+                "connector": {
+                    "id": connector_id,
+                    "source": "notion",
+                    "name": connector_name,
+                },
+                "credential": {
+                    "id": credential_id,
+                    "user_email": credential.get("user_email"),
+                    "source": credential.get("source"),
+                },
+            }
+        )
+        return {"success": True, "data": cc_pair_id}
+
     def _create_document_set(self, body: dict[str, object]) -> int:
         set_id = self._alloc()
         self.document_sets.append(self._document_set_row(set_id, body))
@@ -228,8 +304,21 @@ class RecordingApi:
                     "document_sets": _id_rows(persona.get("document_set_ids")),
                     "tools": _id_rows(persona.get("tool_ids")),
                     "labels": _id_rows(persona.get("label_ids")),
+                    "users": [
+                        {"id": user_id}
+                        for user_id in persona.get("users", [])
+                        if isinstance(user_id, str)
+                    ],
                 }
         raise ConfigError(f"Unknown persona {persona_id}")
+
+
+def _same_pair(row: dict[str, object], connector_id: int, credential_id: int) -> bool:
+    connector = row.get("connector")
+    credential = row.get("credential")
+    if not isinstance(connector, dict) or not isinstance(credential, dict):
+        return False
+    return connector.get("id") == connector_id and credential.get("id") == credential_id
 
 
 def _id_rows(value: object) -> list[dict[str, int]]:
