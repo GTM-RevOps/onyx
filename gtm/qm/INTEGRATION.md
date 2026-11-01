@@ -43,7 +43,7 @@ A shared channel is a different qm scope from a person's private scope. Keep sha
 
 The bundled compose stack runs `mcp_server` and nginx publishes it at `/mcp` (`deployment/data/nginx/mcp.conf.inc.template`). Customer docs say the server is on for every edition, including Community Edition (`documentation/overview/onyx_anywhere/mcp_server.mdx`).
 
-Tools on that server, from `backend/onyx/mcp_server/tools/search.py`:
+Tools in `backend/onyx/mcp_server/tools/search.py`. `search_web` and `open_urls` register only when `MCP_INDEXED_SEARCH_ONLY` is not `true`:
 
 | Tool | Effect |
 | --- | --- |
@@ -88,7 +88,7 @@ Set qm `HARNESS_SECURITY_POSTURE` to `strict`. The stub does that in `layer/qm.c
 
 The Onyx registration sets `readOnly: true` and `approval: "all"`. `approval: "all"` makes every Onyx tool pause even if the org posture is later loosened to Auto (`mcpToolNeedsApproval`). Strict already pauses them. `approval: "none"` does not override Strict. The gate still runs when the tool itself does not declare `needsApproval`.
 
-`search_web` and `open_urls` are on the same server. The skill forbids them for GTM answers. They still exist until Onyx grows a search-only MCP mode. That mode is not in this tree.
+Decided for v1: MCP_INDEXED_SEARCH_ONLY=true on the GTM VM. The server does not register search_web or open_urls. The default stays off.
 
 Anything that sends or writes (Slack send, a future CRM tool) stays under Strict. Do not add those tools to the Onyx agents. Onyx stays answer-and-draft.
 
@@ -147,8 +147,9 @@ Start the Hub index fresh after `excluded_page_ids` is set, or confirm Informati
 2. Does qm `oauth-user` complete against Onyx's OAuth server (PKCE, dynamic client registration, scope `read:search`)? Not tried. PATs are the path this stub uses.
 3. Who creates the Onyx user and the PAT for each rep, and how is a revoked rep removed from both systems?
 4. Should a later MCP tool expose `POST /chat/send-chat-message` so the Onyx harness prompt runs inside Onyx? Today the skill repeats those rules.
-5. Should `search_web` and `open_urls` be disabled on this deployment's MCP server? The code has no such switch.
+5. Decided for v1: MCP_INDEXED_SEARCH_ONLY=true on the GTM VM. The server does not register search_web or open_urls. The default stays off.
 6. After Notion indexes, do you attach hierarchy nodes per role so search scope is narrower than the public document set? Community Edition cannot do that with groups.
+7. The API server's POST /web-search/search-lite and /web-search/open-urls still accept READ_SEARCH PATs, so a rep's PAT must reach Onyx only through the /mcp-only path (Task 2's Worker plus Cloudflare Access on the main host).
 
 ## Unverified
 

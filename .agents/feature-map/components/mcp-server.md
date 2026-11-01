@@ -20,7 +20,8 @@
   configuration.
 - **The client's model** can then call `search_indexed_documents` for ranked
   results from the knowledge base, and `search_web` and `open_urls` for the
-  web. It can read resources that list the indexed sources, the document sets
+  web. Those two web tools stay unregistered when `MCP_INDEXED_SEARCH_ONLY` is
+  `true`. It can read resources that list the indexed sources, the document sets
   and the agents that the user can use, so it can narrow a search before it
   runs one. Results contain only documents the user can see in Onyx.
 - **When it fails**, a bad or expired token gets a 401. A PAT or API key
@@ -31,7 +32,7 @@
   returns an error that names the valid values when the list is short. A deployment with no indexed sources, or with no vector database,
   returns an error from the search tool. With no active web search provider,
   `search_web` gets `INVALID_INPUT` from `/web-search/search-lite`, and the
-  tool is still listed. `open_urls` falls back to the built-in crawler when no
+  tool is still listed only when `MCP_INDEXED_SEARCH_ONLY` is off. `open_urls` falls back to the built-in crawler when no
   content provider is set.
 - **An operator** gets the server by default in Docker Compose and Helm, and
   turns it off with `MCP_SERVER_ENABLED=false` (Compose) or
@@ -207,9 +208,12 @@ process. `/.well-known/oauth-authorization-server` goes to the API server
 
 ## Recipes
 
-- `mcp-server-tool` **A tool or resource.** Copy `search_web` in `mcp_server/tools/search.py`
-  for a tool, or `mcp_server/resources/document_sets.py` for a resource; list
-  the current set with `git grep -n '@mcp_server\.' backend/onyx/mcp_server`.
+- `mcp-server-tool` **A tool or resource.** Copy `search_indexed_documents` in `mcp_server/tools/search.py`
+  for a tool that is always registered. `search_web` and `open_urls` register
+  through `mcp_server/tools/search.py:register_web_tools` only when
+  `MCP_INDEXED_SEARCH_ONLY` is not `true`. Copy
+  `mcp_server/resources/document_sets.py` for a resource. List decorated tools
+  with `git grep -n '@mcp_server\.' backend/onyx/mcp_server`.
   Import a new module in the package `__init__.py`. Call an API route; do not
   query the database ([[#acl-from-search-route]]). Add the route to
   `_ACCESS_ROUTES` if OAuth clients may use it

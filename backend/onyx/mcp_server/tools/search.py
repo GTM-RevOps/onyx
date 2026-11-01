@@ -1,5 +1,6 @@
 """Search tools for MCP server - document and web search."""
 
+import os
 import time
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -7,6 +8,7 @@ from datetime import datetime
 from typing import Any
 
 import httpx
+from fastmcp import FastMCP
 from fastmcp.server.auth.auth import AccessToken
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
@@ -416,7 +418,19 @@ async def search_indexed_documents(
             record_mcp_search_results(tool, result_count)
 
 
-@mcp_server.tool()
+def indexed_search_only_from_env() -> bool:
+    """True only when MCP_INDEXED_SEARCH_ONLY is the word true, ignoring case."""
+    return os.environ.get("MCP_INDEXED_SEARCH_ONLY", "").strip().lower() == "true"
+
+
+def register_web_tools(server: FastMCP, *, indexed_search_only: bool) -> None:
+    """Register search_web and open_urls unless indexed search is the only mode."""
+    if indexed_search_only:
+        return
+    server.tool()(search_web)
+    server.tool()(open_urls)
+
+
 async def search_web(
     query: str,
     limit: int = 5,
@@ -476,7 +490,6 @@ async def search_web(
             record_mcp_search_results(tool, result_count)
 
 
-@mcp_server.tool()
 async def open_urls(
     urls: list[str],
 ) -> dict[str, Any]:
@@ -527,3 +540,6 @@ async def open_urls(
         return _error_payload(f"URL fetch failed: {str(err)}")
     finally:
         record_mcp_server_tool_outcome(tool, _start, outcome)
+
+
+register_web_tools(mcp_server, indexed_search_only=indexed_search_only_from_env())

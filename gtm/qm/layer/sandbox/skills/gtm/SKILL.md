@@ -33,6 +33,6 @@ Task names and placeholders are in `tasks.md` in this skill. The canonical wordi
 - Draft only. A human sends email, Slack, and CRM updates.
 - Do not write to HubSpot or Outreach.
 - Do not offer a discount, a legal term, or personal data that the search results do not contain.
-- Do not call `onyx_search_web` or `onyx_open_urls` for a GTM answer. Those tools leave the brain.
+- Do not call web search or URL fetch. MCP_INDEXED_SEARCH_ONLY=true means search_web and open_urls are not registered, so onyx_search_web and onyx_open_urls are absent.
 
 `agent` on the search tool limits retrieval to that agent's document sets. It does not run the Onyx chat prompt. You apply the rules above. Onyx's MCP server has no chat tool.
