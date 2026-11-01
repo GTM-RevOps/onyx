@@ -60,6 +60,9 @@ node_modules
 
 # plans (include symlinked plans dir too)
 plans
+# Shared implementation plans are committed. Other plans directories stay ignored.
+!docs/superpowers/plans/
+!docs/superpowers/plans/**
 
 # Added context for LLMs
 .claude/CLAUDE.md
