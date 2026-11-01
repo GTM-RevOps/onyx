@@ -60,7 +60,7 @@ notion:
       - kevin.williams@pushpress.com
       - garrick.iwamoto@pushpress.com
       - ian.chand@pushpress.com
-      - jessica.xu@pushpress.com  # TODO confirm
+      - jessica.xu@pushpress.com
 
 # Public sets attach only the Hub connector. Informatics has its own non-public set.
 document_sets:
@@ -369,7 +369,7 @@ agents:
       - kevin.williams@pushpress.com
       - garrick.iwamoto@pushpress.com
       - ian.chand@pushpress.com
-      - jessica.xu@pushpress.com  # TODO confirm
+      - jessica.xu@pushpress.com
     tasks:
       - name: Informatics comp question
         prompt: |
