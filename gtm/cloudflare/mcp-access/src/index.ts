@@ -1,4 +1,4 @@
-// Proxies GET, POST, and DELETE for /mcp and /.well-known/ to ONYX_ORIGIN.
+// Proxies GET, POST, and DELETE for /mcp and the two OAuth well-known paths.
 // Every other path and method is 404 and does not call the origin.
 
 export type AccessEnv = {
@@ -21,6 +21,14 @@ const FORWARDED_HEADERS: readonly string[] = [
   "authorization",
   "content-type",
   "accept",
+  "mcp-session-id",
+  "mcp-protocol-version",
+  "last-event-id",
+];
+
+const WELL_KNOWN_ROOTS: readonly string[] = [
+  "/.well-known/oauth-protected-resource",
+  "/.well-known/oauth-authorization-server",
 ];
 
 function notFound(): Response {
@@ -61,6 +69,32 @@ function hasBlockedSegment(pathname: string): boolean {
   return false;
 }
 
+function isSafeSegment(segment: string): boolean {
+  if (
+    segment.length === 0 ||
+    segment === "." ||
+    segment === ".." ||
+    segment.endsWith(".")
+  ) {
+    return false;
+  }
+  return /^[A-Za-z0-9._-]+$/.test(segment);
+}
+
+function isWellKnownPath(pathname: string): boolean {
+  for (const root of WELL_KNOWN_ROOTS) {
+    if (pathname === root) {
+      return true;
+    }
+    const prefix = `${root}/`;
+    if (!pathname.startsWith(prefix)) {
+      continue;
+    }
+    return pathname.slice(prefix.length).split("/").every(isSafeSegment);
+  }
+  return false;
+}
+
 function isAllowedPath(pathname: string): boolean {
   if (
     pathname.includes("%") ||
@@ -75,22 +109,7 @@ function isAllowedPath(pathname: string): boolean {
   if (pathname === "/mcp") {
     return true;
   }
-  if (!pathname.startsWith("/.well-known/")) {
-    return false;
-  }
-  const segments = pathname.split("/").filter((segment) => segment.length > 0);
-  if (segments.length === 1) {
-    return pathname === "/.well-known/";
-  }
-  for (const segment of segments) {
-    if (segment === "." || segment === "..") {
-      return false;
-    }
-    if (!/^[A-Za-z0-9._-]+$/.test(segment)) {
-      return false;
-    }
-  }
-  return true;
+  return isWellKnownPath(pathname);
 }
 
 export async function handle(
@@ -117,14 +136,14 @@ export async function handle(
   }
 
   const headers = new Headers();
-  headers.set("CF-Access-Client-Id", env.CF_ACCESS_CLIENT_ID);
-  headers.set("CF-Access-Client-Secret", env.CF_ACCESS_CLIENT_SECRET);
   for (const name of FORWARDED_HEADERS) {
     const value = request.headers.get(name);
     if (value !== null) {
       headers.set(name, value);
     }
   }
+  headers.set("CF-Access-Client-Id", env.CF_ACCESS_CLIENT_ID);
+  headers.set("CF-Access-Client-Secret", env.CF_ACCESS_CLIENT_SECRET);
 
   const init: RequestInit = {
     method: request.method,

@@ -125,11 +125,52 @@ test("GET and DELETE /mcp forward the path and query", async () => {
   }
 });
 
+test("POST and GET /mcp forward the session id and replace CF-Access-Client-Secret", async () => {
+  for (const method of ["POST", "GET"]) {
+    const { fetchImpl, calls } = recordingFetch();
+    const body = method === "GET" ? undefined : "{}";
+    await handle(
+      incoming(
+        "/mcp",
+        method,
+        {
+          authorization: "Bearer onyx_pat_test",
+          "mcp-session-id": "session-1",
+          "mcp-protocol-version": "2025-06-18",
+          "last-event-id": "event-9",
+          "cf-access-client-secret": "caller-supplied",
+          cookie: "session=secret",
+        },
+        body,
+      ),
+      env,
+      fetchImpl,
+    );
+
+    assert.equal(calls.length, 1, method);
+    assert.equal(calls[0].headers.get("mcp-session-id"), "session-1", method);
+    assert.equal(
+      calls[0].headers.get("mcp-protocol-version"),
+      "2025-06-18",
+      method,
+    );
+    assert.equal(calls[0].headers.get("last-event-id"), "event-9", method);
+    assert.equal(
+      calls[0].headers.get("cf-access-client-secret"),
+      "client-secret",
+      method,
+    );
+    assert.equal(calls[0].headers.get("cf-access-client-id"), "client-id", method);
+    assert.equal(calls[0].headers.get("cookie"), null, method);
+  }
+});
+
 test("GET /.well-known/ forwards OAuth discovery and drops Cookie", async () => {
   const paths = [
     "/.well-known/oauth-protected-resource",
     "/.well-known/oauth-protected-resource/mcp",
     "/.well-known/oauth-authorization-server",
+    "/.well-known/oauth-authorization-server/mcp",
   ];
   for (const path of paths) {
     const { fetchImpl, calls } = recordingFetch();
@@ -148,6 +189,35 @@ test("GET /.well-known/ forwards OAuth discovery and drops Cookie", async () => 
     );
     assert.equal(calls[0].headers.get("cookie"), null, path);
     assert.equal(calls[0].headers.get("cf-access-client-secret"), "client-secret");
+  }
+});
+
+test("rejects other well-known paths, including trailing dots, with no fetch", async () => {
+  const paths = [
+    "/.well-known/",
+    "/.well-known/openid-configuration",
+    "/.well-known/acme-challenge",
+    "/.well-known/oauth-protected-resource.",
+    "/.well-known/oauth-authorization-server.",
+    "/.well-known/oauth-protected-resource./mcp",
+    "/.well-known/oauth-protected-resource/mcp.",
+    "/.well-known/oauth-authorization-server/mcp.",
+    "/.well-known/oauth-protected-resource/",
+    "/.well-known/oauth-protected-resource-extra",
+    "/.well-known/oauth-authorization-server-extra",
+    "/.well-known/oauth-protected-resource/web-search",
+  ];
+
+  for (const path of paths) {
+    const { fetchImpl, calls } = recordingFetch();
+    const response = await handle(
+      incoming(path, "GET", { authorization: "Bearer onyx_pat_test" }),
+      env,
+      fetchImpl,
+    );
+    assert.equal(response.status, 404, path);
+    assert.equal(await response.text(), "not found", path);
+    assert.equal(calls.length, 0, path);
   }
 });
 

@@ -43,6 +43,8 @@ A shared channel is a different qm scope from a person's private scope. Keep sha
 
 The bundled compose stack runs `mcp_server` and nginx publishes it at `/mcp` (`deployment/data/nginx/mcp.conf.inc.template`). Customer docs say the server is on for every edition, including Community Edition (`documentation/overview/onyx_anywhere/mcp_server.mdx`).
 
+Carried forward for Task 3: set `proxy_buffering off` for `/mcp` in `deployment/data/nginx/mcp.conf.inc.template` or its Compose equivalent, otherwise SSE gets buffered.
+
 Tools in `backend/onyx/mcp_server/tools/search.py`. `search_web` and `open_urls` register only when `MCP_INDEXED_SEARCH_ONLY` is not `true`:
 
 | Tool | Effect |
