@@ -39,7 +39,7 @@ The Informatics connector is PRIVATE. It is paired once per viewer, each pair us
 - kevin.williams@pushpress.com
 - garrick.iwamoto@pushpress.com
 - ian.chand@pushpress.com
-- jessica.xu@pushpress.com  # TODO confirm
+- jessica.xu@pushpress.com
 
 Gavin, Nathan Hemphill, and the rest of the sales team get the Hub only.
 

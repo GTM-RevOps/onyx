@@ -115,7 +115,7 @@ Do not commit qm source, qm images, or `.env` into this Onyx repo.
 
 ## Onboard an Informatics viewer
 
-Informatics is page `408233ce-1c17-81e4-a92f-e23cc8bb95fd`. The viewers are Kevin Williams, Garrick Iwamoto, Ian Chand, and Jessica Xu. Jessica's email is unconfirmed: `jessica.xu@pushpress.com` (`# TODO confirm`).
+Informatics is page `408233ce-1c17-81e4-a92f-e23cc8bb95fd`. The viewers are Kevin Williams, Garrick Iwamoto, Ian Chand, and Jessica Xu (`jessica.xu@pushpress.com`).
 
 Use a **new** read-only Notion internal integration. Capability: read content only. Do not use the existing `RevOps | Dev` integration. The Hub connector's `NOTION_INTEGRATION_TOKEN` is that new token. Each viewer uses the same integration when they create their own Onyx credential.
 
