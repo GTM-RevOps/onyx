@@ -32,7 +32,7 @@
   returns an error that names the valid values when the list is short. A deployment with no indexed sources, or with no vector database,
   returns an error from the search tool. With no active web search provider,
   `search_web` gets `INVALID_INPUT` from `/web-search/search-lite`, and the
-  tool is still listed. `open_urls` falls back to the built-in crawler when no
+  tool is still listed only when `MCP_INDEXED_SEARCH_ONLY` is off. `open_urls` falls back to the built-in crawler when no
   content provider is set.
 - **An operator** gets the server by default in Docker Compose and Helm, and
   turns it off with `MCP_SERVER_ENABLED=false` (Compose) or

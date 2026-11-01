@@ -8,7 +8,7 @@ Three Community Edition files. The Notion rows let a public crawl skip a page an
 | `backend/onyx/connectors/notion/connector.py` | `__init__` seeds `indexed_pages` with those ids. The crawler already skips an id in that set before it reads child pages. |
 | `backend/onyx/mcp_server/tools/search.py` | Registers `search_web` and `open_urls` only when `MCP_INDEXED_SEARCH_ONLY` is not `true`. Default is unchanged. |
 
-The unit test is `backend/tests/unit/onyx/connectors/notion/test_notion_excluded_pages.py`.
+The unit tests are `backend/tests/unit/onyx/connectors/notion/test_notion_excluded_pages.py` and `backend/tests/unit/onyx/mcp_server/test_indexed_search_only.py`.
 
 No file under `backend/ee/` is imported or edited.
 

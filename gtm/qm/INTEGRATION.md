@@ -149,6 +149,7 @@ Start the Hub index fresh after `excluded_page_ids` is set, or confirm Informati
 4. Should a later MCP tool expose `POST /chat/send-chat-message` so the Onyx harness prompt runs inside Onyx? Today the skill repeats those rules.
 5. Decided for v1: MCP_INDEXED_SEARCH_ONLY=true on the GTM VM. The server does not register search_web or open_urls. The default stays off.
 6. After Notion indexes, do you attach hierarchy nodes per role so search scope is narrower than the public document set? Community Edition cannot do that with groups.
+7. The API server's POST /web-search/search-lite and /web-search/open-urls still accept READ_SEARCH PATs, so a rep's PAT must reach Onyx only through the /mcp-only path (Task 2's Worker plus Cloudflare Access on the main host).
 
 ## Unverified
 

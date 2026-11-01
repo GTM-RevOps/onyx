@@ -420,7 +420,7 @@ async def search_indexed_documents(
 
 def indexed_search_only_from_env() -> bool:
     """True only when MCP_INDEXED_SEARCH_ONLY is the word true, ignoring case."""
-    return os.environ.get("MCP_INDEXED_SEARCH_ONLY", "").lower() == "true"
+    return os.environ.get("MCP_INDEXED_SEARCH_ONLY", "").strip().lower() == "true"
 
 
 def register_web_tools(server: FastMCP, *, indexed_search_only: bool) -> None:
