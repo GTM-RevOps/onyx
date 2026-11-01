@@ -1,11 +1,12 @@
 # Upstream files this fork changes
 
-Two Community Edition files, so the public Notion crawl can skip a page and the pages under it.
+Three Community Edition files. The Notion rows let a public crawl skip a page and the pages under it.
 
 | File | Change |
 | --- | --- |
 | `backend/onyx/connectors/notion/config.py` | Optional `excluded_page_ids`. Empty or omitted means no exclusions. Values are dashed page ids. A 32-character hex id is stored dashed. |
 | `backend/onyx/connectors/notion/connector.py` | `__init__` seeds `indexed_pages` with those ids. The crawler already skips an id in that set before it reads child pages. |
+| `backend/onyx/mcp_server/tools/search.py` | Registers `search_web` and `open_urls` only when `MCP_INDEXED_SEARCH_ONLY` is not `true`. Default is unchanged. |
 
 The unit test is `backend/tests/unit/onyx/connectors/notion/test_notion_excluded_pages.py`.
 
