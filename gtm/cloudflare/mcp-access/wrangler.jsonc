@@ -1,0 +1,42 @@
+{
+  // Deploy with --env staging or --env production. Do not deploy the top level.
+  // CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET are Wrangler secrets.
+  // Set each with: npx wrangler secret put CF_ACCESS_CLIENT_ID --env staging
+  // and the same command for CF_ACCESS_CLIENT_SECRET, then again with --env production.
+  // Do not commit secret values. ONYX_ORIGIN is a public var, not a secret.
+  "name": "pushpress-onyx-mcp-access-unrouted",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-31",
+  "workers_dev": false,
+  "preview_urls": false,
+  "env": {
+    "staging": {
+      "name": "pushpress-onyx-mcp-access-staging",
+      "workers_dev": false,
+      "preview_urls": false,
+      "routes": [
+        {
+          "pattern": "mcp-staging.pushpress.com/*",
+          "zone_name": "pushpress.com"
+        }
+      ],
+      "vars": {
+        "ONYX_ORIGIN": "https://onyx-staging.pushpress.com"
+      }
+    },
+    "production": {
+      "name": "pushpress-onyx-mcp-access",
+      "workers_dev": false,
+      "preview_urls": false,
+      "routes": [
+        {
+          "pattern": "mcp.pushpress.com/*",
+          "zone_name": "pushpress.com"
+        }
+      ],
+      "vars": {
+        "ONYX_ORIGIN": "https://onyx.pushpress.com"
+      }
+    }
+  }
+}
