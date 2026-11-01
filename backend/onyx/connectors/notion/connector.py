@@ -35,7 +35,7 @@ from onyx.connectors.models import (
     SlimDocument,
     TextSection,
 )
-from onyx.connectors.notion.config import page_id_from_url
+from onyx.connectors.notion.config import normalize_notion_page_id, page_id_from_url
 from onyx.connectors.notion.models import NotionSearchObjectType
 from onyx.connectors.notion.source_operations import (
     NotionApiError,
@@ -146,11 +146,20 @@ class NotionConnector(LoadConnector, PollConnector, SlimConnector):
         batch_size: int = INDEX_BATCH_SIZE,
         recursive_index_enabled: bool = not NOTION_CONNECTOR_DISABLE_RECURSIVE_PAGE_LOOKUP,
         root_page_id: str | None = None,
+        excluded_page_ids: list[str] | None = None,
     ) -> None:
         """Initialize with parameters."""
         self.batch_size = batch_size
         self._source_operations: NotionSourceOperations | None = None
+        # Seeded ids are treated as already indexed, so the crawler does not
+        # read those pages or the child pages it would discover under them.
         self.indexed_pages: set[str] = set()
+        for page_id in excluded_page_ids or []:
+            normalized = normalize_notion_page_id(page_id)
+            if normalized is None:
+                continue
+            self.indexed_pages.add(normalized)
+            self.indexed_pages.add(normalized.replace("-", ""))
         # A blank root page ID means "every shared page", as on the create form.
         self.root_page_id = (root_page_id or "").strip() or None
         # if enabled, will recursively index child pages as they are found rather

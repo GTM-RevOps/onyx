@@ -1,0 +1,381 @@
+# Machine-readable GTM brain. gtm/config/bootstrap.py reads this file.
+# Prompt text lives in specs/prompts/. Task names must also appear in
+# specs/task-menu.md. Notion section names must appear in specs/notion-space.md.
+version: 1
+
+harness:
+  prompt_file: specs/prompts/harness.txt
+  # Evals look for this sentence. Keep it identical in the harness prompt.
+  not_in_brain_phrase: "This is not in the brain."
+  label: GTM
+  task_prompt: |
+    Answer in this role. Cite every factual claim from the brain.
+    If the brain has no source, say "This is not in the brain."
+    Draft only. A human sends every message and CRM update.
+
+llm:
+  provider_name: PushPress OpenAI
+  provider: openai
+  api_key_env: OPENAI_API_KEY
+  chat_model_env: OPENAI_CHAT_MODEL
+  chat_model_default: gpt-4.1
+  fast_model_env: OPENAI_FAST_MODEL
+  fast_model_default: gpt-4.1-mini
+  # OpenAI publishes a 1,047,576 token context for these models.
+  chat_max_input_tokens: 1047576
+  fast_max_input_tokens: 1047576
+  set_chat_default_if_unset: true
+  set_vision_default_if_unset: true
+  set_naming_default_if_unset: true
+  set_search_selection_default_if_unset: true
+
+notion:
+  # Hub is PUBLIC. Every pushpress.com Google user can read it.
+  # excluded_page_ids keeps the Informatics subtree out of this crawl.
+  hub:
+    name: PushPress GTM Hub
+    source: notion
+    input_type: poll
+    access_type: public
+    refresh_freq_seconds: 3600
+    prune_freq_seconds: 86400
+    recursive_index_enabled: true
+    token_env: NOTION_INTEGRATION_TOKEN
+    root_page_id_env: NOTION_ROOT_PAGE_ID
+    credential_key: notion_integration_token
+    root_page_id: 1cd17a7f-1e33-4794-a832-05ef95ab2a60
+    excluded_page_ids:
+      - 408233ce-1c17-81e4-a92f-e23cc8bb95fd
+  # Informatics is PRIVATE. One credential pair per viewer. No public document set.
+  informatics:
+    name: PushPress GTM Informatics
+    source: notion
+    input_type: poll
+    access_type: private
+    refresh_freq_seconds: 3600
+    prune_freq_seconds: 86400
+    recursive_index_enabled: true
+    root_page_id: 408233ce-1c17-81e4-a92f-e23cc8bb95fd
+    viewers:
+      - kevin.williams@pushpress.com
+      - garrick.iwamoto@pushpress.com
+      - ian.chand@pushpress.com
+      - jessica.xu@pushpress.com  # TODO confirm
+
+# Public sets attach only the Hub connector. Informatics has its own non-public set.
+document_sets:
+  - key: all
+    name: GTM All
+    description: Public Hub pages. The Informatics subtree is not in this connector.
+    cc_pair_names:
+      - PushPress GTM Hub
+    is_public: true
+    notion_sections:
+      - ICP
+      - Personas
+      - Messaging
+      - Battlecards
+      - Pricing
+      - Objections
+      - Playbooks
+      - Case studies
+      - Release notes
+  - key: sdr
+    name: GTM SDR
+    description: Pages an SDR uses for research and first-touch drafts.
+    cc_pair_names:
+      - PushPress GTM Hub
+    is_public: true
+    notion_sections:
+      - ICP
+      - Personas
+      - Messaging
+      - Objections
+      - Playbooks
+  - key: ae
+    name: GTM AE
+    description: Pages an AE uses to prepare a deal and draft a follow-up.
+    cc_pair_names:
+      - PushPress GTM Hub
+    is_public: true
+    notion_sections:
+      - ICP
+      - Personas
+      - Battlecards
+      - Pricing
+      - Objections
+      - Case studies
+      - Playbooks
+  - key: cs
+    name: GTM CS
+    description: Pages customer success uses for replies and renewals.
+    cc_pair_names:
+      - PushPress GTM Hub
+    is_public: true
+    notion_sections:
+      - Playbooks
+      - Case studies
+      - Release notes
+      - Objections
+  - key: manager
+    name: GTM Manager
+    description: Pages a manager uses to coach from the playbooks.
+    cc_pair_names:
+      - PushPress GTM Hub
+    is_public: true
+    notion_sections:
+      - Playbooks
+      - ICP
+      - Messaging
+      - Release notes
+  - key: revops
+    name: GTM RevOps
+    description: Public Hub pages, for definition checks and draft updates.
+    cc_pair_names:
+      - PushPress GTM Hub
+    is_public: true
+    notion_sections:
+      - ICP
+      - Personas
+      - Messaging
+      - Battlecards
+      - Pricing
+      - Objections
+      - Playbooks
+      - Case studies
+      - Release notes
+  - key: competitive
+    name: GTM Competitive
+    description: Battlecards, objections, and messaging only.
+    cc_pair_names:
+      - PushPress GTM Hub
+    is_public: true
+    notion_sections:
+      - Battlecards
+      - Objections
+      - Messaging
+  - key: informatics
+    name: GTM Informatics
+    description: Sales compensation and the pages under Informatics. Not public.
+    cc_pair_names:
+      - PushPress GTM Informatics
+    is_public: false
+    notion_sections:
+      - Informatics
+
+agents:
+  - key: sdr
+    name: SDR Helper
+    description: Research an account and draft first-touch outreach. A human sends it.
+    prompt_file: specs/prompts/sdr.txt
+    document_set_keys:
+      - sdr
+    tool_codes:
+      - SearchTool
+    featured: true
+    display_priority: 10
+    datetime_aware: true
+    replace_base_system_prompt: false
+    starter_message_limit: 4
+    tasks:
+      - name: SDR first-touch email
+        prompt: |
+          Draft a first-touch email to a {{persona}} at a {{segment}} gym.
+          Use the messaging page. Cite each line you use. Do not send it.
+      - name: SDR objection reply
+        prompt: |
+          Draft a reply to this objection: {{objection}}.
+          Use the objections page. Cite it. Do not send it.
+      - name: SDR account fit
+        prompt: |
+          Is this account in our ICP? {{account_description}}
+          Cite the ICP page. If the page does not decide it, say this is not in the brain.
+      - name: SDR call opener
+        prompt: |
+          Write a 30-second opener for a {{persona}}.
+          Use the SDR playbook. Cite it.
+
+  - key: ae
+    name: AE Deal Prep
+    description: Prepare a deal brief and a follow-up draft. A human sends it.
+    prompt_file: specs/prompts/ae.txt
+    document_set_keys:
+      - ae
+    tool_codes:
+      - SearchTool
+    featured: true
+    display_priority: 20
+    datetime_aware: true
+    replace_base_system_prompt: false
+    starter_message_limit: 4
+    tasks:
+      - name: AE deal brief
+        prompt: |
+          Prepare a deal brief for {{account}}.
+          Cover fit, persona, risks, and questions. Cite the ICP and battlecards.
+          Leave stage and amount blank unless I supplied them.
+      - name: AE pricing explain
+        prompt: |
+          Explain pricing for {{segment}} in plain language.
+          Cite the pricing page. Do not invent a discount.
+      - name: AE follow-up draft
+        prompt: |
+          Draft a follow-up after this call note: {{note}}.
+          Cite any claim you take from the brain. A human sends it.
+      - name: AE competitive risk
+        prompt: |
+          How do we answer {{competitor}} on this deal?
+          Use battlecards only. If no card names them, say this is not in the brain.
+
+  - key: cs
+    name: CS Helper
+    description: Draft customer replies and renewal notes. A human sends them.
+    prompt_file: specs/prompts/cs.txt
+    document_set_keys:
+      - cs
+    tool_codes:
+      - SearchTool
+    featured: true
+    display_priority: 30
+    datetime_aware: true
+    replace_base_system_prompt: false
+    starter_message_limit: 4
+    tasks:
+      - name: CS renewal note
+        prompt: |
+          Draft a renewal note for {{account}}.
+          Use the CS playbook and case studies. Cite them. Do not send it.
+      - name: CS release answer
+        prompt: |
+          Did we ship {{feature}}? Answer from the release notes only.
+          If the notes are silent, say this is not in the brain.
+      - name: CS customer reply
+        prompt: |
+          Draft a reply to this customer message: {{message}}.
+          Do not promise a feature the release notes do not list.
+      - name: CS objection reply
+        prompt: |
+          The customer said: {{objection}}.
+          Draft a reply from the objections page. Cite it.
+
+  - key: manager
+    name: Manager
+    description: Coach from the playbooks. Do not invent performance numbers.
+    prompt_file: specs/prompts/manager.txt
+    document_set_keys:
+      - manager
+    tool_codes:
+      - SearchTool
+    featured: true
+    display_priority: 40
+    datetime_aware: true
+    replace_base_system_prompt: false
+    starter_message_limit: 4
+    tasks:
+      - name: Manager call review
+        prompt: |
+          Review this call summary against the {{role}} playbook: {{summary}}.
+          List gaps. Cite the playbook.
+      - name: Manager coaching point
+        prompt: |
+          What should a manager coach when an SDR skips discovery?
+          Cite the manager or SDR playbook.
+      - name: Manager commit rule
+        prompt: |
+          What must be true before a deal is commit?
+          Answer from the playbooks. If they are silent, say this is not in the brain.
+      - name: Manager release brief
+        prompt: |
+          Summarize the latest release notes for a team meeting.
+          Cite the notes. If there are no notes, say this is not in the brain.
+
+  - key: revops
+    name: RevOps
+    description: Check definitions and draft Notion updates. A human publishes them.
+    prompt_file: specs/prompts/revops.txt
+    document_set_keys:
+      - revops
+    tool_codes:
+      - SearchTool
+    featured: true
+    display_priority: 50
+    datetime_aware: true
+    replace_base_system_prompt: false
+    starter_message_limit: 4
+    tasks:
+      - name: RevOps definition check
+        prompt: |
+          What is our definition of ICP and of a qualified meeting?
+          Quote the pages. Flag conflicts.
+      - name: RevOps pricing rules
+        prompt: |
+          List the pricing rules a rep must follow.
+          Cite the pricing page. Do not add a rule that is not there.
+      - name: RevOps source gap
+        prompt: |
+          Which of these topics have no page in the brain: ICP, personas, messaging, battlecards, pricing, objections, playbooks, case studies, release notes?
+          Say "not in the brain" for a missing topic. Do not invent the page.
+      - name: RevOps draft update
+        prompt: |
+          Draft a Notion update for this decision: {{decision}}.
+          Do not publish it. A human publishes it.
+
+  - key: competitive
+    name: Competitive Analyst
+    description: Answer from battlecards only. Do not invent competitive claims.
+    prompt_file: specs/prompts/competitive.txt
+    document_set_keys:
+      - competitive
+    tool_codes:
+      - SearchTool
+    featured: true
+    display_priority: 60
+    datetime_aware: true
+    replace_base_system_prompt: false
+    starter_message_limit: 4
+    tasks:
+      - name: Competitive battlecard
+        prompt: |
+          Give the battlecard for {{competitor}}: their claim, our answer, and the proof.
+          Cite the card. If no card exists, say this is not in the brain.
+      - name: Competitive landmine
+        prompt: |
+          What question should we ask when {{competitor}} is in the deal?
+          Cite the battlecard.
+      - name: Competitive unknown rival
+        prompt: |
+          How do we beat {{competitor}}?
+          If no battlecard exists, say this is not in the brain.
+      - name: Competitive claim check
+        prompt: |
+          Is this claim safe to say: {{claim}}?
+          Answer only from battlecards and messaging. Cite the page.
+
+  - key: informatics
+    name: Informatics
+    description: Answer from the private Informatics pages. A human sends anything onward.
+    prompt_file: specs/prompts/informatics.txt
+    document_set_keys:
+      - informatics
+    tool_codes:
+      - SearchTool
+    featured: false
+    display_priority: 70
+    datetime_aware: true
+    replace_base_system_prompt: false
+    starter_message_limit: 2
+    public: false
+    viewer_emails:
+      - kevin.williams@pushpress.com
+      - garrick.iwamoto@pushpress.com
+      - ian.chand@pushpress.com
+      - jessica.xu@pushpress.com  # TODO confirm
+    tasks:
+      - name: Informatics comp question
+        prompt: |
+          Answer this compensation question from Informatics only: {{question}}.
+          Cite the page. If it is not there, say this is not in the brain.
+      - name: Informatics page lookup
+        prompt: |
+          What does Informatics say about {{topic}}?
+          Cite the page. Do not quote it to anyone who is not a viewer.
